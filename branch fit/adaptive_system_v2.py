@@ -33,8 +33,8 @@ class TrueAdaptiveSystem:
         with open('branch_labels.json', 'r') as f:
             self.branch_labels = json.load(f)
         
-        # Load all questions from dataset
-        df = pd.read_csv('balanced_dataset_full__1_.csv')
+        # Load all questions# Load dataset
+        df = pd.read_csv('balanced_dataset_augmented.csv')
         self.all_questions = list(df.columns[1:])  # All 60 questions, skip target column
         
         print(f"✓ Loaded {len(self.all_questions)} questions")

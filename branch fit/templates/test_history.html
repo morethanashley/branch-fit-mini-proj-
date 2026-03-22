@@ -47,42 +47,42 @@
                             <tr>
                                 <td>
                                     <div class="d-flex align-items-center">
-                                        {% if test.type == 'general' %}
+                                        {% if test.test_type == 'general' %}
                                             <i class="fas fa-clipboard-list text-primary me-2"></i>
                                             <span>General Branch Fit</span>
                                         {% else %}
                                             <i class="fas fa-microscope text-info me-2"></i>
-                                            <span>{{ test.branch }} Test</span>
+                                            <span>{{ test.target_branch }} Test</span>
                                         {% endif %}
                                     </div>
                                 </td>
                                 <td>
                                     <small class="text-muted">
-                                        {{ test.completed_at[:10] }}<br>
-                                        {{ test.completed_at[11:16] }}
+                                        {{ test.timestamp[:10] }}<br>
+                                        {{ test.timestamp[11:16] }}
                                     </small>
                                 </td>
                                 <td>
-                                    {% if test.results %}
-                                        <strong>{{ test.results[0].branch }}</strong>
+                                    {% if test.top_branch %}
+                                        <strong>{{ test.top_branch }}</strong>
                                     {% else %}
                                         <span class="text-muted">No results</span>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if test.results %}
+                                    {% if test.confidence %}
                                         <div class="d-flex align-items-center">
                                             <div class="progress me-2" style="width: 60px; height: 8px;">
                                                 <div class="progress-bar 
-                                                    {% if test.results[0].probability >= 80 %}bg-success
-                                                    {% elif test.results[0].probability >= 60 %}bg-info
-                                                    {% elif test.results[0].probability >= 40 %}bg-warning
+                                                    {% if test.confidence >= 80 %}bg-success
+                                                    {% elif test.confidence >= 60 %}bg-info
+                                                    {% elif test.confidence >= 40 %}bg-warning
                                                     {% else %}bg-secondary
                                                     {% endif %}" 
-                                                    style="width: {{ test.results[0].probability }}%">
+                                                    style="width: {{ test.confidence }}%">
                                                 </div>
                                             </div>
-                                            <small class="fw-bold">{{ "%.0f"|format(test.results[0].probability) }}%</small>
+                                            <small class="fw-bold">{{ "%.0f"|format(test.confidence) }}%</small>
                                         </div>
                                     {% else %}
                                         <span class="text-muted">-</span>
@@ -90,21 +90,20 @@
                                 </td>
                                 <td>
                                     <small class="text-muted">
-                                        {% if test.completed_at and test.started_at %}
-                                            ~{{ ((test.completed_at | length) - (test.started_at | length)) // 60 }} min
-                                        {% else %}
-                                            -
-                                        {% endif %}
+                                        {{ test.questions_asked or '-' }}
                                     </small>
                                 </td>
                                 <td>
                                     <div class="btn-group btn-group-sm">
                                         <button class="btn btn-outline-primary btn-sm" 
-                                                onclick="viewResults('{{ loop.index0 }}')">
+                                                data-test='{{ test | tojson | safe }}'
+                                                onclick="viewResults(this)">
                                             <i class="fas fa-eye"></i> View
                                         </button>
                                         <button class="btn btn-outline-secondary btn-sm"
-                                                onclick="compareResults('{{ loop.index0 }}')">
+                                                data-test='{{ test | tojson | safe }}'
+                                                data-index="{{ loop.index0 }}"
+                                                onclick="compareResults(this)">
                                             <i class="fas fa-balance-scale"></i> Compare
                                         </button>
                                     </div>
@@ -135,7 +134,7 @@
             <div class="card-body">
                 <i class="fas fa-trophy fa-2x text-warning mb-2"></i>
                 <h4 class="fw-bold">
-                    {% set general_tests = tests | selectattr('type', 'equalto', 'general') | list %}
+                    {% set general_tests = tests | selectattr('test_type', 'equalto', 'general') | list %}
                     {{ general_tests | length }}
                 </h4>
                 <small class="text-muted">General Tests</small>
@@ -147,7 +146,7 @@
             <div class="card-body">
                 <i class="fas fa-microscope fa-2x text-info mb-2"></i>
                 <h4 class="fw-bold">
-                    {% set branch_tests = tests | selectattr('type', 'equalto', 'branch') | list %}
+                    {% set branch_tests = tests | selectattr('test_type', 'equalto', 'branch') | list %}
                     {{ branch_tests | length }}
                 </h4>
                 <small class="text-muted">Branch Tests</small>
@@ -160,7 +159,7 @@
                 <i class="fas fa-chart-line fa-2x text-success mb-2"></i>
                 <h4 class="fw-bold">
                     {% if tests %}
-                        {{ "%.0f"|format(tests | map(attribute='results') | map('first') | map(attribute='probability') | list | max) }}%
+                        {{ "%.0f"|format(tests | map(attribute='confidence') | list | max) }}%
                     {% else %}
                         0%
                     {% endif %}
@@ -171,35 +170,277 @@
     </div>
 </div>
 
-{% else %}
-<!-- No Tests Yet -->
-<div class="row">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-body text-center p-5">
-                <i class="fas fa-clipboard fa-4x text-muted mb-3"></i>
-                <h3 class="text-muted mb-3">No Tests Taken Yet</h3>
-                <p class="text-muted mb-4">Start your journey by taking your first test!</p>
-                <a href="{{ url_for('dashboard') }}" class="btn btn-primary btn-lg">
-                    <i class="fas fa-play"></i> Take Your First Test
-                </a>
+{% endif %}
+
+<!-- View Result Modal -->
+<div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">Test Result Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <p class="mb-1 text-muted">Test Type</p>
+                        <h5 id="viewTestType" class="fw-bold">-</h5>
+                        <p class="mb-1 text-muted mt-3">Date and Time</p>
+                        <p id="viewDateTime" class="mb-0">-</p>
+                    </div>
+                    <div class="col-md-6 text-md-end">
+                        <p class="mb-1 text-muted">Questions Asked</p>
+                        <h5 id="viewQuestions" class="fw-bold">-</h5>
+                    </div>
+                </div>
+                
+                <div class="text-center p-4 bg-light rounded-3 mb-4">
+                    <p class="text-muted mb-2">Top Recommended Branch</p>
+                    <h2 id="viewTopBranch" class="fw-bold mb-2">-</h2>
+                    <div class="d-flex justify-content-center align-items-center">
+                        <div class="progress me-3" style="width: 200px; height: 12px;">
+                            <div id="viewConfidenceBar" class="progress-bar" style="width: 0%"></div>
+                        </div>
+                        <h4 id="viewConfidenceText" class="fw-bold mb-0">-</h4>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Branch</th>
+                                <th class="text-end">Score</th>
+                                <th style="width: 40%">Aptitude</th>
+                            </tr>
+                        </thead>
+                        <tbody id="viewScoresBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
 </div>
-{% endif %}
+
+<!-- Compare Result Modal -->
+<div class="modal fade" id="compareModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">Compare Test Results</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="compareBody">
+                <div id="compareContent">
+                    <div class="row">
+                        <div class="col-md-6 border-end">
+                            <div class="p-3 rounded mb-3" id="compareCol1">
+                                <h6 class="text-muted">Selected Test</h6>
+                                <h5 class="fw-bold" id="compareType1">-</h5>
+                                <small class="text-muted d-block mb-3" id="compareDate1">-</small>
+                                <div class="mb-3">
+                                    <small class="text-muted">Top Recommendation</small>
+                                    <h4 class="fw-bold mb-1" id="compareBranch1">-</h4>
+                                    <h5 class="fw-bold" id="compareConf1">-</h5>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="p-3 rounded mb-3" id="compareCol2">
+                                <h6 class="text-muted">Compared With (Most Recent Other)</h6>
+                                <h5 class="fw-bold" id="compareType2">-</h5>
+                                <small class="text-muted d-block mb-3" id="compareDate2">-</small>
+                                <div class="mb-3">
+                                    <small class="text-muted">Top Recommendation</small>
+                                    <h4 class="fw-bold mb-1" id="compareBranch2">-</h4>
+                                    <h5 class="fw-bold" id="compareConf2">-</h5>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <canvas id="compareChart" height="100"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div id="compareEmpty" class="text-center p-5" style="display:none;">
+                    <i class="fas fa-info-circle fa-3x text-muted mb-3"></i>
+                    <h4>Take another test to compare results!</h4>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-    function viewResults(testIndex) {
-        // In a real app, this would navigate to a detailed results page
-        alert('Detailed results view would be implemented here');
+    // Store all tests globally for comparison
+    const allTests = {{ tests | tojson | safe }};
+    let compareChart = null;
+
+    function formatDate(isoString) {
+        if (!isoString) return '-';
+        return new Date(isoString).toLocaleString('en-US', { 
+            month: 'long', 
+            day: 'numeric', 
+            year: 'numeric', 
+            hour: 'numeric', 
+            minute: '2-digit' 
+        });
+    }
+
+    function viewResults(btn) {
+        const test = JSON.parse(btn.getAttribute('data-test'));
+        const modal = new bootstrap.Modal(document.getElementById('viewModal'));
+        
+        document.getElementById('viewTestType').textContent = test.test_type === 'general' ? 'General Branch Fit' : `${test.target_branch} Test`;
+        document.getElementById('viewDateTime').textContent = formatDate(test.timestamp);
+        document.getElementById('viewQuestions').textContent = test.questions_asked;
+        
+        const topBranch = test.top_branch;
+        const confidence = test.confidence;
+        
+        document.getElementById('viewTopBranch').textContent = topBranch;
+        document.getElementById('viewTopBranch').className = `fw-bold mb-2 text-${confidence >= 70 ? 'success' : (confidence >= 40 ? 'warning' : 'danger')}`;
+        
+        const bar = document.getElementById('viewConfidenceBar');
+        bar.style.width = `${confidence}%`;
+        bar.className = `progress-bar bg-${confidence >= 70 ? 'success' : (confidence >= 40 ? 'warning' : 'secondary')}`;
+        
+        document.getElementById('viewConfidenceText').textContent = `${confidence.toFixed(0)}%`;
+        
+        const scoresBody = document.getElementById('viewScoresBody');
+        scoresBody.innerHTML = '';
+        
+        if (test.all_branch_scores) {
+            test.all_branch_scores.sort((a,b) => b.score - a.score).forEach(s => {
+                const isTop = s.branch === topBranch;
+                const row = document.createElement('tr');
+                if (isTop) row.className = 'table-primary';
+                
+                row.innerHTML = `
+                    <td class="${isTop ? 'fw-bold' : ''}">${s.branch}</td>
+                    <td class="text-end fw-bold">${s.score.toFixed(1)}%</td>
+                    <td>
+                        <div class="progress" style="height: 6px; margin-top: 8px;">
+                            <div class="progress-bar ${isTop ? 'bg-primary' : 'bg-info'}" style="width: ${s.score}%"></div>
+                        </div>
+                    </td>
+                `;
+                scoresBody.appendChild(row);
+            });
+        }
+        
+        modal.show();
     }
     
-    function compareResults(testIndex) {
-        // In a real app, this would show a comparison view
-        alert('Results comparison would be implemented here');
+    function compareResults(btn) {
+        const test1 = JSON.parse(btn.getAttribute('data-test'));
+        const index = parseInt(btn.getAttribute('data-index'));
+        const modal = new bootstrap.Modal(document.getElementById('compareModal'));
+        
+        if (allTests.length < 2) {
+            document.getElementById('compareContent').style.display = 'none';
+            document.getElementById('compareEmpty').style.display = 'block';
+        } else {
+            document.getElementById('compareContent').style.display = 'block';
+            document.getElementById('compareEmpty').style.display = 'none';
+            
+            // Find most recent other test
+            const test2 = allTests.find((t, i) => i !== index);
+            
+            // Populate Column 1
+            document.getElementById('compareType1').textContent = test1.test_type === 'general' ? 'General Branch Fit' : `${test1.target_branch} Test`;
+            document.getElementById('compareDate1').textContent = formatDate(test1.timestamp);
+            document.getElementById('compareBranch1').textContent = test1.top_branch;
+            document.getElementById('compareConf1').textContent = `${test1.confidence.toFixed(0)}%`;
+            
+            // Populate Column 2
+            document.getElementById('compareType2').textContent = test2.test_type === 'general' ? 'General Branch Fit' : `${test2.target_branch} Test`;
+            document.getElementById('compareDate2').textContent = formatDate(test2.timestamp);
+            document.getElementById('compareBranch2').textContent = test2.top_branch;
+            document.getElementById('compareConf2').textContent = `${test2.confidence.toFixed(0)}%`;
+            
+            // Highlight winner
+            const col1 = document.getElementById('compareCol1');
+            const col2 = document.getElementById('compareCol2');
+            if (test1.confidence > test2.confidence) {
+                col1.style.backgroundColor = 'rgba(25, 135, 84, 0.1)';
+                col2.style.backgroundColor = 'transparent';
+                document.getElementById('compareConf1').className = 'fw-bold text-success';
+                document.getElementById('compareConf2').className = 'fw-bold';
+            } else if (test2.confidence > test1.confidence) {
+                col2.style.backgroundColor = 'rgba(25, 135, 84, 0.1)';
+                col1.style.backgroundColor = 'transparent';
+                document.getElementById('compareConf2').className = 'fw-bold text-success';
+                document.getElementById('compareConf1').className = 'fw-bold';
+            } else {
+                col1.style.backgroundColor = 'transparent';
+                col2.style.backgroundColor = 'transparent';
+                document.getElementById('compareConf1').className = 'fw-bold';
+                document.getElementById('compareConf2').className = 'fw-bold';
+            }
+            
+            // Setup Chart.js
+            const ctx = document.getElementById('compareChart').getContext('2d');
+            if (compareChart) compareChart.destroy();
+            
+            const branches = test1.all_branch_scores.map(s => s.branch);
+            const data1 = branches.map(b => {
+                const s = test1.all_branch_scores.find(x => x.branch === b);
+                return s ? s.score : 0;
+            });
+            const data2 = branches.map(b => {
+                const s = test2.all_branch_scores.find(x => x.branch === b);
+                return s ? s.score : 0;
+            });
+            
+            compareChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: branches,
+                    datasets: [
+                        {
+                            label: 'Selected Test',
+                            data: data1,
+                            backgroundColor: 'rgba(37, 99, 235, 0.7)',
+                            borderColor: 'rgba(37, 99, 235, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Previous Test',
+                            data: data2,
+                            backgroundColor: 'rgba(107, 114, 128, 0.7)',
+                            borderColor: 'rgba(107, 114, 128, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: { display: true, text: 'Confidence (%)' }
+                        }
+                    }
+                }
+            });
+        }
+        
+        modal.show();
     }
 </script>
 {% endblock %}
